@@ -1,0 +1,17 @@
+import streamlit as st
+
+st.title("My First Streamlit Website")
+
+st.write("Welcome to my website!")
+
+# Add a sidebar
+st.sidebar.title("Navigation")
+st.sidebar.write("Welcome to the sidebar!")
+
+# Add some interactive elements
+if st.button("Click me!"):
+    st.balloons()
+
+name = st.text_input("What's your name?")
+if name:
+    st.write(f"Hello, {name}!")
