@@ -1,0 +1,183 @@
+import streamlit as st
+
+st.title("Family Income/Property Division Calculator")
+st.write("This tool helps calculate fair division of family assets considering multiple factors.")
+
+def initialize_session_state():
+    if 'siblings' not in st.session_state:
+        st.session_state.siblings = []
+    if 'show_results' not in st.session_state:
+        st.session_state.show_results = False
+
+initialize_session_state()
+
+# Step 1: Basic Family Details
+with st.form("basic_details"):
+    st.subheader("Step 1: Basic Family Information")
+    num_siblings = st.number_input("Number of siblings", min_value=1, max_value=10, value=1)
+    total_amount = st.number_input("Total family income/property to divide ($)", min_value=0.0, value=500000.0)
+    cultural_constraints = st.checkbox("Are there cultural/traditional constraints?")
+    cultural_desc = st.text_area("Describe cultural constraints") if cultural_constraints else None
+    submit_basic = st.form_submit_button("Continue to Sibling Details")
+
+# Step 2: Per-Sibling Questions
+if submit_basic or st.session_state.siblings:
+    st.subheader("Step 2: Sibling Information")
+
+    for i in range(int(num_siblings)):
+        with st.expander(f"Sibling {i+1} Details", expanded=True):
+            with st.form(f"sibling_{i}"):
+                name = st.text_input("Name/ID", key=f"name_{i}")
+                age = st.number_input("Age", min_value=0, max_value=120, key=f"age_{i}")
+                gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"gender_{i}")
+                marital_status = st.selectbox("Marital Status", 
+                    ["Married", "Unmarried", "Divorced/Widowed"], key=f"marital_{i}")
+
+                dependents = 0
+                if marital_status == "Married":
+                    has_dependents = st.checkbox("Has dependents?", key=f"has_dep_{i}")
+                    if has_dependents:
+                        dependents = st.number_input("Number of dependents", 
+                            min_value=0, max_value=10, key=f"dep_num_{i}")
+
+                employment = st.selectbox("Employment Status",
+                    ["Fully employed", "Partially employed", "Unemployed", "Retired"], 
+                    key=f"emp_{i}")
+
+                family_income_pct = 0
+                unemployed_years = 0
+                if employment in ["Fully employed", "Partially employed"]:
+                    family_income_pct = st.slider("% income from family business/inheritance", 
+                        0, 100, 0, key=f"fam_inc_{i}")
+                else:
+                    unemployed_years = st.number_input("Years in current status", 
+                        min_value=0, max_value=50, key=f"unemp_{i}")
+
+                need_rating = st.slider("Financial Need (1=Very Low, 5=Very High)", 
+                    1, 5, 3, key=f"need_{i}")
+
+                contributed = st.checkbox("Contributed to family income/business?", key=f"contrib_{i}")
+                contrib_pct = 0
+                if contributed:
+                    st.text_area("Describe contribution", key=f"contrib_desc_{i}")
+                    contrib_pct = st.slider("% of total family income contributed", 
+                        0, 100, 0, key=f"contrib_pct_{i}")
+
+                responsibility = st.checkbox("Taken caregiving/financial responsibility?", 
+                    key=f"resp_{i}")
+                resp_level = "Low"
+                if responsibility:
+                    st.text_area("Describe responsibility", key=f"resp_desc_{i}")
+                    resp_level = st.selectbox("Responsibility level", 
+                        ["Low", "Medium", "High"], key=f"resp_level_{i}")
+
+                past_benefits = st.checkbox("Received past benefits?", key=f"past_{i}")
+                past_value = 0
+                if past_benefits:
+                    past_value = st.number_input("Value of past benefits ($)", 
+                        min_value=0.0, key=f"past_val_{i}")
+                    st.text_input("When received", key=f"past_when_{i}")
+
+                other_desc = st.text_area("Other factors (if any)", key=f"other_{i}")
+
+                if st.form_submit_button("Save Sibling Details"):
+                    sibling = {
+                        "name": name,
+                        "age": age,
+                        "gender": gender,
+                        "marital_status": marital_status,
+                        "dependents": dependents,
+                        "employment": employment,
+                        "family_income_pct": family_income_pct,
+                        "unemployed_years": unemployed_years,
+                        "need_rating": need_rating,
+                        "contributed": contributed,
+                        "contrib_pct": contrib_pct,
+                        "responsibility": responsibility,
+                        "resp_level": resp_level,
+                        "past_benefits": past_benefits,
+                        "past_value": past_value,
+                        "other_desc": other_desc
+                    }
+
+                    # Update or append sibling data
+                    if i < len(st.session_state.siblings):
+                        st.session_state.siblings[i] = sibling
+                    else:
+                        st.session_state.siblings.append(sibling)
+
+    if st.button("Calculate Division"):
+        st.session_state.show_results = True
+
+# Step 3-5: Compute and Show Results
+if st.session_state.show_results and len(st.session_state.siblings) > 0:
+    st.subheader("Division Results")
+
+    def compute_score(sib):
+        score = 0
+
+        # Financial Need (30%)
+        need_score = (sib["need_rating"] / 5) * 30
+        if sib["dependents"] > 0:
+            need_score += 5
+        if sib["unemployed_years"] > 0:
+            need_score += min(sib["unemployed_years"], 5)
+        score += min(need_score, 30)
+
+        # Contribution (25%)
+        contrib_score = (sib["contrib_pct"] / 100) * 25 if sib["contributed"] else 0
+        score += contrib_score
+
+        # Responsibility (25%)
+        resp_scores = {"Low": 5, "Medium": 15, "High": 25}
+        resp_score = resp_scores.get(sib["resp_level"], 0) if sib["responsibility"] else 0
+        score += resp_score
+
+        # Past Benefits (15%)
+        past_penalty = min((sib["past_value"] / 100000) * 15, 15) if sib["past_benefits"] else 0
+        score -= past_penalty
+
+        # Cultural (5%)
+        if cultural_constraints and sib["gender"] == "Male" and \
+           sib["age"] == max(s["age"] for s in st.session_state.siblings):
+            score += 5
+
+        return max(0, min(100, score))
+
+    # Calculate scores and shares
+    for sib in st.session_state.siblings:
+        sib["score"] = compute_score(sib)
+
+    total_score = sum(s["score"] for s in st.session_state.siblings)
+
+    if total_score > 0:
+        for sib in st.session_state.siblings:
+            sib["share"] = (sib["score"] / total_score) * total_amount
+            sib["percentage"] = (sib["score"] / total_score) * 100
+
+        # Display results
+        st.write(f"Total Amount to Divide: ${total_amount:,.2f}")
+
+        for sib in st.session_state.siblings:
+            with st.expander(f"{sib['name']}'s Share", expanded=True):
+                st.write(f"Amount: ${sib['share']:,.2f} ({sib['percentage']:.1f}%)")
+
+                reasoning = f"Score: {sib['score']:.1f}/100\n\nReasoning:\n"
+                if sib["need_rating"] >= 4:
+                    reasoning += f"- High financial need (rating {sib['need_rating']})\n"
+                if sib["contrib_pct"] > 20:
+                    reasoning += f"- Strong contributions ({sib['contrib_pct']}% to family income)\n"
+                if sib["resp_level"] == "High":
+                    reasoning += "- High responsibility toward family\n"
+                if sib["past_value"] > 0:
+                    reasoning += f"- Past benefits (${sib['past_value']:,.0f}) reduced share\n"
+                if cultural_constraints and sib["gender"] == "Male" and \
+                   sib["age"] == max(s["age"] for s in st.session_state.siblings):
+                    reasoning += "- Cultural preference as eldest male\n"
+
+                st.write(reasoning)
+
+if st.button("Start Over"):
+    st.session_state.siblings = []
+    st.session_state.show_results = False
+    st.experimental_rerun()
